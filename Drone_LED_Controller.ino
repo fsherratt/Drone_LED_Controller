@@ -36,39 +36,17 @@ void loop()
     modeChanged = false;
     gLoopCount = 0;
   }
-
-  switch ( mode )
+  
+  uint8_t strobeCount = gLoopCount % 100;
+  if ( strobeCount == 0 || strobeCount == 1 || strobeCount == 10 || strobeCount == 11 )
   {
-    case DEFAULT:
-      colorWipe(&port_ring_strip, port_ring_strip.Color(0, 0, 255));
-      if ( colorWipe(&star_ring_strip, star_ring_strip.Color(255, 0, 0)) )
-      {
-        mode = OTHER;
-        modeChanged = true;
-        star_ring_strip.setStrobe(true);
-        port_ring_strip.setStrobe(true);
-      }
-      else
-      {
-        star_ring_strip.setStrobe(false);
-        port_ring_strip.setStrobe(false);
-      }
-      break;
-
-    case OTHER:
-      colorWipe(&port_ring_strip, port_ring_strip.Color(255, 0, 0));
-      if ( colorWipe(&star_ring_strip, star_ring_strip.Color(0, 0, 255)) )
-      {
-        mode = DEFAULT;
-        modeChanged = true;
-        star_ring_strip.setStrobe(true);
-        port_ring_strip.setStrobe(true);
-      }
-      else
-      {
-        star_ring_strip.setStrobe(false);
-        port_ring_strip.setStrobe(false);
-      }
+    star_ring_strip.setStrobe(true);
+    port_ring_strip.setStrobe(true);
+  } 
+  else
+  {
+    star_ring_strip.setStrobe(false);
+    port_ring_strip.setStrobe(false);
   }
 
   gLoopCount++;

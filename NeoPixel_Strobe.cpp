@@ -28,7 +28,7 @@ void NeoPixel_Strobe::show()
       if ( wOffset == rOffset) { // RGB device
         col = (0xFF << 16) | (0xFF < 8) || 0xFF;
       } else { // RGBW device
-        col |= (0xFF << 24);
+        col |= (strobe_brightness << 24);
       }
     }
     

@@ -15,6 +15,8 @@ class NeoPixel_Strobe : public Adafruit_NeoPixel
 
     void setStrobe(boolean val);
 
+    const uint8_t strobe_brightness = 0xFF;
+
   private:
     boolean strobe;
     uint32_t colorPixels[NUM_STROBE_PIXELS];
