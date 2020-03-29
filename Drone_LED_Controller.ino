@@ -51,6 +51,13 @@ void loop()
     modeChanged = false;
     gLoopCount = 0;
   }
+
+  colorWipe(&leg_1_strip, leg_1_strip.Color(0,0,255));
+  colorWipe(&leg_2_strip, leg_2_strip.Color(255,0,0));
+
+  colorWipe(&star_ring_strip, star_ring_strip.Color(0,0,255));
+  colorWipe(&port_ring_strip, port_ring_strip.Color(255,0,0));
+
   
   uint8_t strobeCount = gLoopCount % 100;
   if ( strobeCount == 0 || strobeCount == 1 || strobeCount == 10 || strobeCount == 11 )
@@ -72,8 +79,8 @@ void loop()
 void initialiseNeoPixel( NeoPixel_Strobe* strip )
 {
   strip->begin();
-  strip->show();
   strip->setBrightness(BRIGHTNESS);
+  strip->show();
 }
 
 
@@ -86,21 +93,29 @@ void clearNeopixel( NeoPixel_Strobe* strip )
 
 boolean colorWipe(NeoPixel_Strobe* strip, uint32_t c)
 {
+  const uint8_t startPause = 1;
   const uint8_t endPause = 1;
-  const uint8_t loopLength = strip->numPixels() + endPause;
+  const uint8_t loopLength = strip->numPixels() + startPause + endPause;
 
   boolean finished = false;
 
   int16_t count = gLoopCount >> 3; // Scale to 25Hz
   uint8_t i = count % loopLength;
 
-  if ( i < strip->numPixels() )
+  if (i < startPause)
   {
-    strip->setPixelColor(i, c);
+    strip->clear();
+    strip->show();
+    return false;
+  }
+
+  if ( i-startPause < strip->numPixels() )
+  {
+    strip->setPixelColor(i-startPause, c);
     strip->show();
   }
 
-  if ( i == loopLength - 1)
+  if ( i == loopLength)
   {
     finished = true;
   }
