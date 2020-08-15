@@ -9,7 +9,6 @@ NeoPixel_Strobe::NeoPixel_Strobe(uint16_t n, uint16_t pin, neoPixelType type) :
 void NeoPixel_Strobe::setPixelColor(uint16_t n, uint32_t c)
 {
   colorPixels[n] = c;
-  
 }
 
 void NeoPixel_Strobe::clear()
