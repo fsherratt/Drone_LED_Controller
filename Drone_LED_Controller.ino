@@ -15,7 +15,7 @@
 #define BRIGHTNESS 50 // Max 255
 #define LOOP_DELAY 10 // 100Hz main loop
 
-enum eMODE_t {
+enum eMode_t {
   INIT,
   RUNNING,
   ARMED,
@@ -47,28 +47,22 @@ void setup()
   initialiseNeoPixel( &leg_2_strip );
   initialiseNeoPixel( &leg_3_strip );
   initialiseNeoPixel( &leg_4_strip );
+
+  serialSetup();
 }
 
 
 void loop()
 {
-  static uint8_t sMode = INIT;
+  static eMode_t sMode = INIT;
   uint32_t loopStartTime = millis();
+
+  checkSerialPort(&sMode);
   
-  updateLEDs((eMODE_t)sMode);
+  updateLEDs(sMode);
 
   mode_strobe(false);
   mode_orientation_lights(false);
-  
-  // Demo - loop through all modes
-  static uint16_t i = 0;
-  i++; 
-  if (i > 400) {
-    i = 0;
-    sMode++;
-
-    if (sMode == MODES_END) sMode = INIT;
-  }
 
   while( millis() - loopStartTime < 10);
 
@@ -76,9 +70,61 @@ void loop()
 }
 
 
-void updateLEDs(eMODE_t mode) {
+// Serial
+void serialSetup() {
+  Serial1.begin(9600);
+}
+
+void checkSerialPort(eMode_t* pMode) {
+  char incomingByte;
+  if (Serial1.available()) {
+    incomingByte = Serial1.read();
+
+    switch(incomingByte) {
+      case 'i':
+        *pMode = INIT;
+        break;
+
+      case 'r':
+        *pMode = RUNNING;
+        break;
+
+      case 'a':
+        *pMode = ARMED;
+        break;
+
+      case 't':
+        *pMode = TAKEOFF;
+        break;
+
+      case 'l':
+        *pMode = LANDING;
+        break;
+
+      case 'c':
+        *pMode = COLLISION_AVIODANCE;
+        break;
+
+      case 'e':
+        *pMode = ERROR;
+        break;
+
+      case 'E':
+        *pMode = MUCH_ERROR;
+        break;
+
+      default:
+        break;
+    }
+  }
+}
+
+
+
+// LED
+void updateLEDs(eMode_t mode) {
   static uint32_t sLoopCount = 0;
-  static eMODE_t lastMode = MODES_END;
+  static eMode_t lastMode = MODES_END;
 
   boolean modeChanged = false;
   if ( mode != lastMode ) {
@@ -138,7 +184,6 @@ void pushUpdates() {
   star_ring_strip.show();
   port_ring_strip.show();
 }
-
 
 
 // Modes
