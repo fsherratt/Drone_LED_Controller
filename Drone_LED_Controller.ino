@@ -12,10 +12,10 @@
 #define RING_PIXELS 16
 #define LEG_PIXELS 16
 
-#define BRIGHTNESS 255 // Max 255
+#define BRIGHTNESS 50 // Max 255
 #define LOOP_DELAY 10 // 100Hz main loop
 
-enum MODE {
+enum eMODE_t {
   INIT,
   RUNNING,
   ARMED,
@@ -23,7 +23,8 @@ enum MODE {
   TAKEOFF,
   COLLISION_AVIODANCE,
   ERROR,
-  MUCH_ERROR
+  MUCH_ERROR,
+  MODES_END
 };
 
 
@@ -51,65 +52,94 @@ void setup()
 
 void loop()
 {
-  static uint32_t sLoopCount = 0;
-
   static uint8_t sMode = INIT;
-  static boolean sModeChanged = true;
-
-  if ( sModeChanged )
-    sLoopCount = 0;
-
-  mode_strobe(sLoopCount, sModeChanged);
-
-  switch (sMode)
-  {
-  case INIT:
-    mode_init(sLoopCount, sModeChanged);
-    break;
-
-  case RUNNING:
-    mode_running(sLoopCount, sModeChanged);
-    break;
-  case ARMED:
-    mode_armed(sLoopCount, sModeChanged);
-    break;
-
-  case LANDING:
-    mode_landing(sLoopCount, sModeChanged);
-    break;
-
-  case TAKEOFF:
-    mode_takeoff(sLoopCount, sModeChanged);
-    break;
-
-  case COLLISION_AVIODANCE:
-    mode_collisionAvoid(sLoopCount, sModeChanged);
-    break;
-
-  case ERROR:
-    mode_error(sLoopCount, sModeChanged);
-    break;
-
-  case MUCH_ERROR:
-    mode_muchError(sLoopCount, sModeChanged);
-    break;
+  uint32_t loopStartTime = millis();
   
-  default:
-    sMode = INIT;
-    break;
+  updateLEDs((eMODE_t)sMode);
+
+  mode_strobe(false);
+  mode_orientation_lights(false);
+  
+  // Demo - loop through all modes
+  static uint16_t i = 0;
+  i++; 
+  if (i > 400) {
+    i = 0;
+    sMode++;
+
+    if (sMode == MODES_END) sMode = INIT;
   }
 
-  if ( sModeChanged )
-    sModeChanged = false;
+  while( millis() - loopStartTime < 10);
+
+  pushUpdates();
+}
+
+
+void updateLEDs(eMODE_t mode) {
+  static uint32_t sLoopCount = 0;
+  static eMODE_t lastMode = MODES_END;
+
+  boolean modeChanged = false;
+  if ( mode != lastMode ) {
+    lastMode = mode;
+
+    modeChanged = true;
+    sLoopCount = 0;
+  }
+
+  switch (mode)
+  {
+    case INIT:
+      mode_init(sLoopCount, modeChanged);
+      break;
+
+    case RUNNING:
+      mode_running(sLoopCount, modeChanged);
+      break;
+    case ARMED:
+      mode_armed(sLoopCount, modeChanged);
+      break;
+
+    case LANDING:
+      mode_landing(sLoopCount, modeChanged);
+      break;
+
+    case TAKEOFF:
+      mode_takeoff(sLoopCount, modeChanged);
+      break;
+
+    case COLLISION_AVIODANCE:
+      mode_collisionAvoid(sLoopCount, modeChanged);
+      break;
+
+    case ERROR:
+      mode_error(sLoopCount, modeChanged);
+      break;
+
+    case MUCH_ERROR:
+      mode_muchError(sLoopCount, modeChanged);
+      break;
+    
+    case MODES_END:
+    default:
+      break;
+  }
 
   sLoopCount++;
-  delay(LOOP_DELAY); // 100Hz counter
-
-  if (sLoopCount % 400 == 0) {
-    sMode++;
-    sModeChanged = true;
-  }
 }
+
+void pushUpdates() {
+  leg_1_strip.show();
+  leg_2_strip.show();
+  leg_3_strip.show();
+  leg_4_strip.show();
+
+  star_ring_strip.show();
+  port_ring_strip.show();
+}
+
+
 
 // Modes
 void mode_init( uint32_t loopCount, boolean modeChanged ) {
@@ -254,11 +284,21 @@ void mode_muchError(uint32_t loopCount, boolean modeChanged) {
   fill(&port_ring_strip, color);
 }
 
-void mode_strobe( uint32_t loopCount, boolean modeChanged ) {
+
   uint8_t strobeCount = loopCount % 100;
-  if ( strobeCount == 0 || strobeCount == 1 \
+  uint8_t ledMaskLen = 3;
      || strobeCount == 7 || strobeCount == 8 \
      || strobeCount == 14 || strobeCount == 15 )
+
+void mode_strobe(boolean reset) {
+  static uint32_t i = 0;
+  
+  if (reset) i = 0;
+
+  uint8_t strobeCount = i % 150;
+  if ( strobeCount == 0 || strobeCount == 2 \
+     || strobeCount == 8 || strobeCount == 10 \
+     || strobeCount == 16 || strobeCount == 18 )
   {
     star_ring_strip.setStrobe(true);
     port_ring_strip.setStrobe(true);
@@ -268,7 +308,10 @@ void mode_strobe( uint32_t loopCount, boolean modeChanged ) {
     star_ring_strip.setStrobe(false);
     port_ring_strip.setStrobe(false);
   }
+
+  i++;
 }
+
 
 
 // LED Strips
@@ -301,7 +344,6 @@ void fillRainbow(NeoPixel_Strobe* strip, uint32_t rainbowOffset) {
     c = colorRainbow(i, rainbowOffset, strip->numPixels());
     strip->setPixelColor(i, c);
   }
-  strip->show();
 }
 
 void colorWipe(NeoPixel_Strobe* strip, uint32_t loopCount, uint8_t offset, uint32_t c)
@@ -317,7 +359,6 @@ void colorWipe(NeoPixel_Strobe* strip, uint32_t loopCount, uint8_t offset, uint3
   if (i < startPause)
   {
     strip->clear();
-    strip->show();
   }
 
   // Set LED values
@@ -337,8 +378,6 @@ void colorWipe(NeoPixel_Strobe* strip, uint32_t loopCount, uint8_t offset, uint3
       strip->setPixelColor(j, c);
     }
   }
-
-  strip->show();
 }
 
 void rain(NeoPixel_Strobe* strip, uint32_t loopCount, uint32_t color, uint8_t spread, boolean direction) {
@@ -352,7 +391,6 @@ void rain(NeoPixel_Strobe* strip, uint32_t loopCount, uint32_t color, uint8_t sp
       strip->setPixelColor(i, color);
     }
   }
-  strip->show();
 }
 
 

@@ -40,5 +40,4 @@ void NeoPixel_Strobe::show()
 void NeoPixel_Strobe::setStrobe(boolean val)
 {
   strobe = val;
-  show();
 }
