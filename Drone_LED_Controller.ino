@@ -285,10 +285,21 @@ void mode_muchError(uint32_t loopCount, boolean modeChanged) {
 }
 
 
-  uint8_t strobeCount = loopCount % 100;
+void mode_orientation_lights(boolean reset) {
   uint8_t ledMaskLen = 3;
-     || strobeCount == 7 || strobeCount == 8 \
-     || strobeCount == 14 || strobeCount == 15 )
+  uint32_t portColor = colorRGB(255, 0, 0);
+  uint32_t starColor = colorRGB(0, 255, 0);
+
+  fillSegment(&leg_1_strip, portColor, leg_1_strip.numPixels() - ledMaskLen, 0);
+  fillSegment(&leg_2_strip, portColor, leg_2_strip.numPixels() - ledMaskLen, 0);
+
+  fillSegment(&leg_3_strip, starColor, leg_3_strip.numPixels() - ledMaskLen, 0);
+  fillSegment(&leg_4_strip, starColor, leg_4_strip.numPixels() - ledMaskLen, 0);
+
+  fillSegment(&port_ring_strip, portColor, 12, 3);
+  fillSegment(&star_ring_strip, starColor, 12, 3);
+}
+
 
 void mode_strobe(boolean reset) {
   static uint32_t i = 0;
@@ -335,7 +346,17 @@ void fill(NeoPixel_Strobe* strip, uint32_t color) {
   for (int8_t i = 0; i < strip->numPixels(); i++ ) {
     strip->setPixelColor(i, color);
   }
-  strip->show();
+}
+
+void fillSegment(NeoPixel_Strobe* strip, uint32_t color, uint8_t start, uint8_t len ) {
+  if (len == 0) len = strip->numPixels() - start;
+
+  uint8_t end = start + len;
+  if (end >= strip->numPixels()) end = strip->numPixels();
+
+  for (int8_t i = start; i < end; i++ ) {
+    strip->setPixelColor(i, color);
+  }
 }
 
 void fillRainbow(NeoPixel_Strobe* strip, uint32_t rainbowOffset) {
