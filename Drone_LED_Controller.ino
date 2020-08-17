@@ -1,30 +1,32 @@
 #include "NeoPixel_Strobe.h"
 
 #include "stdlib.h"
-
-#define PIN_PORT_RING 12
-#define PIN_STAR_RING A2
-#define LEG_STRIP_1 7
-#define LEG_STRIP_2 4
-#define LEG_STRIP_3 3
-#define LEG_STRIP_4 2
+//OUT: 1,  2,  3,  4, 5, 6, 7, 8, 9,  10, 11, 12
+//PIN: 12, 11, 10, 9, 7, 4, 3, 2, A5, A4, A3, A2
+#define PIN_PORT_RING A3
+#define PIN_STAR_RING 11
+#define LEG_STRIP_1 A4
+#define LEG_STRIP_2 A5
+#define LEG_STRIP_3 10
+#define LEG_STRIP_4 9
 
 #define RING_PIXELS 16
 #define LEG_PIXELS 16
 
-#define BRIGHTNESS 50 // Max 255
+#define BRIGHTNESS 255 // Max 255
 #define LOOP_DELAY 10 // 100Hz main loop
 
 enum eMode_t {
-  INIT,
-  RUNNING,
-  ARMED,
-  LANDING,
-  TAKEOFF,
-  COLLISION_AVIODANCE,
-  ERROR,
-  MUCH_ERROR,
-  MODES_END
+  MODE_INIT,
+  MODE_NAV,
+  MODE_RUNNING,
+  MODE_ARMED,
+  MODE_LANDING,
+  MODE_TAKEOFF,
+  MODE_COLLISION_AVIODANCE,
+  MODE_ERROR,
+  MODE_MUCH_ERROR,
+  MODE_END
 };
 
 
@@ -54,15 +56,17 @@ void setup()
 
 void loop()
 {
-  static eMode_t sMode = INIT;
+  static eMode_t sMode = MODE_NAV;
+  static bool sStrobe = false;
+  
   uint32_t loopStartTime = millis();
 
-  checkSerialPort(&sMode);
+  checkSerialPort(&sMode, &sStrobe);
   
   updateLEDs(sMode);
 
-  mode_strobe(false);
-  mode_orientation_lights(false);
+  strobe(sStrobe);
+  orientation_lights();
 
   while( millis() - loopStartTime < 10);
 
@@ -75,42 +79,50 @@ void serialSetup() {
   Serial1.begin(9600);
 }
 
-void checkSerialPort(eMode_t* pMode) {
+void checkSerialPort(eMode_t* pMode, bool* pStrobe) {
   char incomingByte;
   if (Serial1.available()) {
     incomingByte = Serial1.read();
 
     switch(incomingByte) {
       case 'i':
-        *pMode = INIT;
+        *pMode = MODE_INIT;
+        break;
+
+      case 'n':
+        *pMode = MODE_NAV;
         break;
 
       case 'r':
-        *pMode = RUNNING;
+        *pMode = MODE_RUNNING;
         break;
 
       case 'a':
-        *pMode = ARMED;
+        *pMode = MODE_ARMED;
         break;
 
       case 't':
-        *pMode = TAKEOFF;
+        *pMode = MODE_TAKEOFF;
         break;
 
       case 'l':
-        *pMode = LANDING;
+        *pMode = MODE_LANDING;
         break;
 
       case 'c':
-        *pMode = COLLISION_AVIODANCE;
+        *pMode = MODE_COLLISION_AVIODANCE;
         break;
 
       case 'e':
-        *pMode = ERROR;
+        *pMode = MODE_ERROR;
         break;
 
       case 'E':
-        *pMode = MUCH_ERROR;
+        *pMode = MODE_MUCH_ERROR;
+        break;
+
+      case 's':
+        *pStrobe = !(*pStrobe);
         break;
 
       default:
@@ -124,7 +136,7 @@ void checkSerialPort(eMode_t* pMode) {
 // LED
 void updateLEDs(eMode_t mode) {
   static uint32_t sLoopCount = 0;
-  static eMode_t lastMode = MODES_END;
+  static eMode_t lastMode = MODE_END;
 
   boolean modeChanged = false;
   if ( mode != lastMode ) {
@@ -136,38 +148,43 @@ void updateLEDs(eMode_t mode) {
 
   switch (mode)
   {
-    case INIT:
+    case MODE_INIT:
       mode_init(sLoopCount, modeChanged);
       break;
 
-    case RUNNING:
+    case MODE_NAV:
+      mode_nav(sLoopCount, modeChanged);
+      break;
+
+    case MODE_RUNNING:
       mode_running(sLoopCount, modeChanged);
       break;
-    case ARMED:
+      
+    case MODE_ARMED:
       mode_armed(sLoopCount, modeChanged);
       break;
 
-    case LANDING:
+    case MODE_LANDING:
       mode_landing(sLoopCount, modeChanged);
       break;
 
-    case TAKEOFF:
+    case MODE_TAKEOFF:
       mode_takeoff(sLoopCount, modeChanged);
       break;
 
-    case COLLISION_AVIODANCE:
+    case MODE_COLLISION_AVIODANCE:
       mode_collisionAvoid(sLoopCount, modeChanged);
       break;
 
-    case ERROR:
+    case MODE_ERROR:
       mode_error(sLoopCount, modeChanged);
       break;
 
-    case MUCH_ERROR:
+    case MODE_MUCH_ERROR:
       mode_muchError(sLoopCount, modeChanged);
       break;
     
-    case MODES_END:
+    case MODE_END:
     default:
       break;
   }
@@ -206,6 +223,18 @@ void mode_init( uint32_t loopCount, boolean modeChanged ) {
 
   sCWOffset += 500;
   sCCWOffset -= 500;
+}
+
+void mode_nav(uint32_t loopCount, boolean modeChanged) {
+  if ( modeChanged ) {
+    leg_1_strip.clear();
+    leg_2_strip.clear();
+    leg_3_strip.clear();
+    leg_4_strip.clear();
+
+    star_ring_strip.clear();
+    port_ring_strip.clear();
+  }
 }
 
 void mode_running(uint32_t loopCount, boolean modeChanged) {
@@ -330,7 +359,7 @@ void mode_muchError(uint32_t loopCount, boolean modeChanged) {
 }
 
 
-void mode_orientation_lights(boolean reset) {
+void orientation_lights() {
   uint8_t ledMaskLen = 3;
   uint32_t portColor = colorRGB(255, 0, 0);
   uint32_t starColor = colorRGB(0, 255, 0);
@@ -346,10 +375,17 @@ void mode_orientation_lights(boolean reset) {
 }
 
 
-void mode_strobe(boolean reset) {
+void strobe(boolean enable) {
   static uint32_t i = 0;
   
-  if (reset) i = 0;
+  if (!enable) {
+    i = 0;
+    
+    star_ring_strip.setStrobe(false);
+    port_ring_strip.setStrobe(false);
+
+    return;
+  }
 
   uint8_t strobeCount = i % 150;
   if ( strobeCount == 0 || strobeCount == 2 \
