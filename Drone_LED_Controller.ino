@@ -1,3 +1,32 @@
+/*
+ * Drone LED Controller
+ * This code is used to drive the individually adressable LED strips for the 
+ * TBDr drones
+ * 
+ * Serial Controls
+ * To control the LED display mode a 9600 baud serial interface can be used. 
+ * Each command is a single ASCII character as described below
+ * 
+ * Mode
+ * `o` - Off
+ * `i` - Initialising - Rainbow
+ * `r` - Running - Pulsing green
+ * `a` - Armed - Solid green
+ * `t` - Takeoff - Updward running green
+ * `l` - Landing - Downward running blue
+ * `c` - Collision avoidance - Alternating purple
+ * `e` - Error - Flashing red
+ * `E` - Much error - Fast flashing red
+ * 
+ * Other
+ * `b` - Cycle through brightness levels
+ * `s` - Toggle strobe on/off
+ * `n` - Toggle orientation marks on/off
+ * 
+ * Author :Freddie Sherratt
+ * Last Modified: 18/08/2020
+ */
+
 #include "NeoPixel_Strobe.h"
 
 #include "stdlib.h"
@@ -13,12 +42,11 @@
 #define RING_PIXELS 16
 #define LEG_PIXELS 16
 
-#define BRIGHTNESS 255 // Max 255
 #define LOOP_DELAY 10 // 100Hz main loop
 
 enum eMode_t {
   MODE_INIT,
-  MODE_NAV,
+  MODE_OFF,
   MODE_RUNNING,
   MODE_ARMED,
   MODE_LANDING,
@@ -28,6 +56,11 @@ enum eMode_t {
   MODE_MUCH_ERROR,
   MODE_END
 };
+
+#define DEFAULT_BRIGHTNESS 255 // Max 255
+#define DEFAULT_STROBE false
+#define DEFAULT_NAV true
+#define DEFAULT_MODE MODE_OFF
 
 
 // LED Strips
@@ -56,19 +89,21 @@ void setup()
 
 void loop()
 {
-  static eMode_t sMode = MODE_NAV;
-  static bool sStrobe = false;
-  
   uint32_t loopStartTime = millis();
-
-  checkSerialPort(&sMode, &sStrobe);
+  
+  static uint8_t sBrightness = DEFAULT_BRIGHTNESS;
+  static bool sStrobeEnable = DEFAULT_STROBE;
+  static bool sNavEnable = DEFAULT_NAV;
+  static eMode_t sMode = DEFAULT_MODE;
+  
+  checkSerialPort(&sMode, &sStrobeEnable, &sNavEnable, &sBrightness);
   
   updateLEDs(sMode);
 
-  strobe(sStrobe);
-  orientation_lights();
+  strobe(sStrobeEnable);
+  orientation_lights(sNavEnable);
 
-  while( millis() - loopStartTime < 10);
+  while( millis() - loopStartTime < 10){;}
 
   pushUpdates();
 }
@@ -79,18 +114,19 @@ void serialSetup() {
   Serial1.begin(9600);
 }
 
-void checkSerialPort(eMode_t* pMode, bool* pStrobe) {
+void checkSerialPort(eMode_t* pMode, bool* pStrobeEnable, bool* pNavEnable, uint8_t* pBrightness)
+{
   char incomingByte;
   if (Serial1.available()) {
     incomingByte = Serial1.read();
 
     switch(incomingByte) {
+      case 'o':
+        *pMode = MODE_OFF;
+        break;
+        
       case 'i':
         *pMode = MODE_INIT;
-        break;
-
-      case 'n':
-        *pMode = MODE_NAV;
         break;
 
       case 'r':
@@ -121,14 +157,38 @@ void checkSerialPort(eMode_t* pMode, bool* pStrobe) {
         *pMode = MODE_MUCH_ERROR;
         break;
 
+      case 'b':
+        *pBrightness = incrementBrightness(*pBrightness);
+        break;
+
       case 's':
-        *pStrobe = !(*pStrobe);
+        *pStrobeEnable = !(*pStrobeEnable);
+        break;
+
+      case 'n':
+        *pNavEnable = !(*pNavEnable);
         break;
 
       default:
         break;
     }
   }
+}
+
+uint8_t incrementBrightness(uint8_t current_brightness) {
+  uint16_t brightness = current_brightness +  50;
+
+  if (brightness > 255) brightness = 0;
+
+  setBrightness(&leg_1_strip, brightness);
+  setBrightness(&leg_2_strip, brightness);
+  setBrightness(&leg_3_strip, brightness);
+  setBrightness(&leg_4_strip, brightness);
+
+  setBrightness(&port_ring_strip, brightness);
+  setBrightness(&star_ring_strip, brightness);
+
+  return (uint8_t)brightness;
 }
 
 
@@ -148,12 +208,12 @@ void updateLEDs(eMode_t mode) {
 
   switch (mode)
   {
+    case MODE_OFF:
+      mode_off(sLoopCount, modeChanged);
+      break;
+      
     case MODE_INIT:
       mode_init(sLoopCount, modeChanged);
-      break;
-
-    case MODE_NAV:
-      mode_nav(sLoopCount, modeChanged);
       break;
 
     case MODE_RUNNING:
@@ -204,7 +264,17 @@ void pushUpdates() {
 
 
 // Modes
-void mode_init( uint32_t loopCount, boolean modeChanged ) {
+void mode_off(uint32_t loopCount, boolean modeChanged) {
+  leg_1_strip.clear();
+  leg_2_strip.clear();
+  leg_3_strip.clear();
+  leg_4_strip.clear();
+
+  star_ring_strip.clear();
+  port_ring_strip.clear();
+}
+
+void mode_init(uint32_t loopCount, boolean modeChanged) {
   static uint32_t sCWOffset = 0;
   static uint32_t sCCWOffset = 0;
 
@@ -223,18 +293,6 @@ void mode_init( uint32_t loopCount, boolean modeChanged ) {
 
   sCWOffset += 500;
   sCCWOffset -= 500;
-}
-
-void mode_nav(uint32_t loopCount, boolean modeChanged) {
-  if ( modeChanged ) {
-    leg_1_strip.clear();
-    leg_2_strip.clear();
-    leg_3_strip.clear();
-    leg_4_strip.clear();
-
-    star_ring_strip.clear();
-    port_ring_strip.clear();
-  }
 }
 
 void mode_running(uint32_t loopCount, boolean modeChanged) {
@@ -359,7 +417,10 @@ void mode_muchError(uint32_t loopCount, boolean modeChanged) {
 }
 
 
-void orientation_lights() {
+void orientation_lights(bool navEnable) {
+  if (!navEnable)
+    return;
+  
   uint8_t ledMaskLen = 3;
   uint32_t portColor = colorRGB(255, 0, 0);
   uint32_t starColor = colorRGB(0, 255, 0);
@@ -410,8 +471,12 @@ void strobe(boolean enable) {
 void initialiseNeoPixel( NeoPixel_Strobe* strip )
 {
   strip->begin();
-  strip->setBrightness(BRIGHTNESS);
+  setBrightness(strip, DEFAULT_BRIGHTNESS);
   strip->show();
+}
+
+void setBrightness(NeoPixel_Strobe* strip, uint8_t brightness) {
+  strip->setBrightness(brightness);
 }
 
 void clearNeopixel( NeoPixel_Strobe* strip )
