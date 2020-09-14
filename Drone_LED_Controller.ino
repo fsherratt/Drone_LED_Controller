@@ -3,8 +3,8 @@
  * This code is used to drive the individually adressable LED strips for the 
  * TBDr drones
  * 
- * Serial Controls
- * To control the LED display mode a 9600 baud serial interface can be used. 
+ * Drone LED Controls
+ * Control drone LED modes, controllable over I2C. 
  * Each command is a single ASCII character as described below
  * 
  * Mode
@@ -26,40 +26,59 @@
  * Author :Freddie Sherratt
  * Last Modified: 18/08/2020
  */
-
+#include <Wire.h>
 #include "NeoPixel_Strobe.h"
 
 #include "stdlib.h"
-//OUT: 1,  2,  3,  4, 5, 6, 7, 8, 9,  10, 11, 12
-//PIN: 12, 11, 10, 9, 7, 4, 3, 2, A5, A4, A3, A2
-#define PIN_PORT_RING A3
-#define PIN_STAR_RING 11
-#define LEG_STRIP_1 A4
-#define LEG_STRIP_2 A5
-#define LEG_STRIP_3 10
-#define LEG_STRIP_4 9
+/*
+ * Top Row - Right->Left
+ * CON: CON1,    CON3,    CON4
+ * OUT: 1,  2,   3,  4,   9,  10
+ * PIN: 10, 9,    12, 11,  A2, A1
+ * 
+ * Bottom Row - Left->Right
+ * CON: CON6     CON5,    CON2
+ * OUT: 12, 11,  6, 5,    8, 7
+ * PIN: A4, A3,  2, A5,   3, 4
+*/
+
+#define PIN_PORT_RING 3
+#define PIN_STAR_RING 10
+#define LEG_STRIP_1 11
+#define LEG_STRIP_2 12
+#define LEG_STRIP_3 A5
+#define LEG_STRIP_4 2
 
 #define RING_PIXELS 16
 #define LEG_PIXELS 16
 
 #define LOOP_DELAY 10 // 100Hz main loop
 
-enum eMode_t {
-  MODE_INIT,
-  MODE_OFF,
-  MODE_RUNNING,
-  MODE_ARMED,
-  MODE_LANDING,
-  MODE_TAKEOFF,
-  MODE_COLLISION_AVIODANCE,
-  MODE_ERROR,
-  MODE_MUCH_ERROR,
-  MODE_END
+enum eLEDMode_t {
+  MODE_OFF = 'o',
+  MODE_INIT = 'i',
+  MODE_RUNNING = 'r',
+  MODE_ARMED = 'a',
+  MODE_LANDING = 'l',
+  MODE_TAKEOFF = 't',
+  MODE_COLLISION_AVIODANCE = 'c',
+  MODE_ERROR = 'e',
+  MODE_MUCH_ERROR = 'E',
+  MODE_END = '.'
+};
+
+struct heartbeat_t {
+  uint32_t timestamp;
+  uint8_t ledMode;
+  uint8_t brightness;
+  uint8_t strobeEnable;
+  uint8_t navEnable;
+  uint8_t reserved[4];
 };
 
 #define DEFAULT_BRIGHTNESS 255 // Max 255
 #define DEFAULT_STROBE false
-#define DEFAULT_NAV true
+#define DEFAULT_NAV false
 #define DEFAULT_MODE MODE_OFF
 
 
@@ -72,9 +91,16 @@ NeoPixel_Strobe leg_2_strip = NeoPixel_Strobe(LEG_PIXELS, LEG_STRIP_2, NEO_GRB +
 NeoPixel_Strobe leg_3_strip = NeoPixel_Strobe(LEG_PIXELS, LEG_STRIP_3, NEO_GRB + NEO_KHZ800);
 NeoPixel_Strobe leg_4_strip = NeoPixel_Strobe(LEG_PIXELS, LEG_STRIP_4, NEO_GRB + NEO_KHZ800);
 
+uint8_t mBrightness = DEFAULT_BRIGHTNESS;
+bool mStrobeEnable = DEFAULT_STROBE;
+bool mNavEnable = DEFAULT_NAV;
+eLEDMode_t mMode = DEFAULT_MODE;
+uint8_t mReadMode = 0;
 
 void setup()
 {
+  i2cSetup();
+  
   initialiseNeoPixel( &port_ring_strip );
   initialiseNeoPixel( &star_ring_strip );
 
@@ -83,7 +109,7 @@ void setup()
   initialiseNeoPixel( &leg_3_strip );
   initialiseNeoPixel( &leg_4_strip );
 
-  serialSetup();
+  setGlobalBrightness(mBrightness);
 }
 
 
@@ -91,17 +117,10 @@ void loop()
 {
   uint32_t loopStartTime = millis();
   
-  static uint8_t sBrightness = DEFAULT_BRIGHTNESS;
-  static bool sStrobeEnable = DEFAULT_STROBE;
-  static bool sNavEnable = DEFAULT_NAV;
-  static eMode_t sMode = DEFAULT_MODE;
-  
-  checkSerialPort(&sMode, &sStrobeEnable, &sNavEnable, &sBrightness);
-  
-  updateLEDs(sMode);
+  updateLEDs(mMode);
 
-  strobe(sStrobeEnable);
-  orientation_lights(sNavEnable);
+  strobe(mStrobeEnable);
+  orientation_lights(mNavEnable);
 
   while( millis() - loopStartTime < 10){;}
 
@@ -109,76 +128,109 @@ void loop()
 }
 
 
-// Serial
-void serialSetup() {
-  Serial1.begin(9600);
+void i2cSetup() {
+  Wire.begin(4);                // join i2c bus with address #2
+
+  Wire.onReceive(receiveEvent); // register event
+  Wire.onRequest(requestEvent); // register event
 }
 
-void checkSerialPort(eMode_t* pMode, bool* pStrobeEnable, bool* pNavEnable, uint8_t* pBrightness)
+void requestEvent() {
+  struct heartbeat_t heartbeat;
+  heartbeat.timestamp = millis();
+  heartbeat.ledMode = mMode;
+  heartbeat.brightness = mBrightness;
+  heartbeat.strobeEnable = mStrobeEnable;
+  heartbeat.navEnable = mNavEnable;
+  
+  Wire.write((byte*)&heartbeat, 10);
+}
+
+void receiveEvent(int howMany)
 {
-  char incomingByte;
-  if (Serial1.available()) {
-    incomingByte = Serial1.read();
+  static uint8_t sI2CMode = 0;
+  uint8_t cmd[32];
 
-    switch(incomingByte) {
+  if (Wire.available()) {
+    char tmp_mode = Wire.read();
+    if (tmp_mode != 0) {
+      sI2CMode = tmp_mode;
+      return;
+    }
+  }
+
+  if (!Wire.available()) {
+    return;
+  }
+
+  int i = 0;
+  while(Wire.available()) // loop through all but the last
+  {
+    cmd[i] = Wire.read();
+    i++;
+
+    if (i >= 32) break;
+  }
+
+  switch(sI2CMode) {
+    case 1:
+      setLEDMode(cmd[0]);
+      break;
+      
+    case 2:
+      setGlobalBrightness(cmd[0]);
+      break;
+
+    case 3:
+      setStrobe(cmd[0]);
+      break;
+
+    case 4:
+      setNav(cmd[0]);
+      break;
+
+    case 5:
+      mReadMode = cmd[0];
+      break;
+      
+    default:
+      break;
+  }
+}
+
+
+// Adjust settings
+void setLEDMode(uint8_t mode) {
+    switch(mode) {
       case 'o':
-        *pMode = MODE_OFF;
-        break;
-        
       case 'i':
-        *pMode = MODE_INIT;
-        break;
-
       case 'r':
-        *pMode = MODE_RUNNING;
-        break;
-
       case 'a':
-        *pMode = MODE_ARMED;
-        break;
-
       case 't':
-        *pMode = MODE_TAKEOFF;
-        break;
-
       case 'l':
-        *pMode = MODE_LANDING;
-        break;
-
       case 'c':
-        *pMode = MODE_COLLISION_AVIODANCE;
-        break;
-
       case 'e':
-        *pMode = MODE_ERROR;
-        break;
-
       case 'E':
-        *pMode = MODE_MUCH_ERROR;
-        break;
-
-      case 'b':
-        *pBrightness = incrementBrightness(*pBrightness);
-        break;
-
-      case 's':
-        *pStrobeEnable = !(*pStrobeEnable);
-        break;
-
-      case 'n':
-        *pNavEnable = !(*pNavEnable);
+        mMode = (eLEDMode_t)mode;
         break;
 
       default:
         break;
     }
-  }
 }
 
-uint8_t incrementBrightness(uint8_t current_brightness) {
-  uint16_t brightness = current_brightness +  50;
+void setStrobe(uint8_t enable) {
+  mStrobeEnable = enable;
+}
 
+void setNav(uint8_t enable) {
+  mNavEnable = enable;
+}
+
+void setGlobalBrightness(uint16_t brightness) {
   if (brightness > 255) brightness = 0;
+
+  mBrightness = brightness;
 
   setBrightness(&leg_1_strip, brightness);
   setBrightness(&leg_2_strip, brightness);
@@ -187,16 +239,14 @@ uint8_t incrementBrightness(uint8_t current_brightness) {
 
   setBrightness(&port_ring_strip, brightness);
   setBrightness(&star_ring_strip, brightness);
-
-  return (uint8_t)brightness;
 }
 
 
 
 // LED
-void updateLEDs(eMode_t mode) {
+void updateLEDs(eLEDMode_t mode) {
   static uint32_t sLoopCount = 0;
-  static eMode_t lastMode = MODE_END;
+  static eLEDMode_t lastMode = MODE_END;
 
   boolean modeChanged = false;
   if ( mode != lastMode ) {
